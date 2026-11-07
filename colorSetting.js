@@ -13,7 +13,16 @@ var settingsId = "#client-settings";
 function runInit13 (moduleName) {
     settingsId = "#settings-config";
 
-    const onOpenSubmenu = foundry.applications.settings.SettingsConfig.DEFAULT_OPTIONS.actions.openSubmenu;
+    // Foundry v13+ uses the ApplicationV2 action instead of the legacy
+    // _onClickSubmenu method. Keep the patch narrowly scoped to this action
+    // and do nothing if a future Foundry version removes or renames it.
+    const settingsConfig = foundry?.applications?.settings?.SettingsConfig;
+    const actions = settingsConfig?.DEFAULT_OPTIONS?.actions;
+    const onOpenSubmenu = actions?.openSubmenu;
+    if (typeof onOpenSubmenu !== "function") {
+        console.warn("colorsettings | SettingsConfig.openSubmenu is unavailable; using native Foundry settings behavior");
+        return;
+    }
 
     const onOpenSubmenuWrapper = async function (_event, button) {
         try {
@@ -34,7 +43,7 @@ function runInit13 (moduleName) {
         }
     };
 
-    foundry.applications.settings.SettingsConfig.DEFAULT_OPTIONS.actions.openSubmenu = onOpenSubmenuWrapper;
+    actions.openSubmenu = onOpenSubmenuWrapper;
 }
 
 function runInit (moduleName) {
@@ -160,7 +169,8 @@ export default class ColorSetting {
         // run init
         if (!window.Ardittristan.initialColorSettingRun) {
             const scriptLocation = getRunningScript()();
-            if (game?.data?.release?.generation >= 13) runInit13();
+            const generation = game?.version ? Number.parseInt(game.version, 10) : game?.data?.release?.generation;
+            if (generation >= 13) runInit13();
             else if (!scriptLocation.includes("modules/colorsettings/")) runInit(module);
             else runInit();
             window.Ardittristan.initialColorSettingRun = true;
@@ -561,10 +571,20 @@ async function _settingsWatcher (_this) {
             element.style.color = API.getTextColor(color);
         })();
 
-        if (_this.options.insertAfter)
-            jQuery(settingsId + ` div.form-group[data-settings-key="${_this.module}.${_this.key}"]`).insertAfter(
-                jQuery(settingsId + ` div.form-group[data-settings-key="${_this.options.insertAfter}"]`)
-            );
+        if (_this.options.insertAfter) {
+            // v14 renders the settings page with ApplicationV2 templates and
+            // no longer exposes our legacy data-settings-key attributes.
+            // Resolve both the modern data-key button and the legacy marker.
+            const current = document.querySelector(
+                `${settingsId} [data-key="${_this.module}.${_this.key}"], ` +
+                `${settingsId} [data-settings-key="${_this.module}.${_this.key}"]`
+            )?.closest(".form-group");
+            const target = document.querySelector(
+                `${settingsId} [data-key="${_this.options.insertAfter}"], ` +
+                `${settingsId} [data-settings-key="${_this.options.insertAfter}"]`
+            )?.closest(".form-group");
+            if (current && target) target.after(current);
+        }
 
         // check if cancel button is pressed
         jQuery(settingsEvent.element[0].querySelector("aside button.reset-all")).on("click", () => {
